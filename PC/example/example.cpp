@@ -58,10 +58,13 @@ int main()
 
 	//FixVariableFlags(&query); // no need to call if you are manualy set variable flags!
 
-	int resultCount = 0;
+	int8 resultCount = 0;
 	Fact results[MAX_MATCHING_FACTS];
 
-	if (SolveQuery(&query, &rule1, &fact1, &resultCount, results))
+	HazeProlog prolog;
+	prolog.SetRuleFactDefinitions(&rule1, &fact1);
+
+	if (prolog.SolveQuery(&query, &resultCount, results))
 	{
 		for (int i = 0; i < resultCount; ++i)
 			PrintResultAccordingToQuery(&query, &results[i]);
