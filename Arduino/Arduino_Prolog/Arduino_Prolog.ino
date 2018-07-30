@@ -3,6 +3,7 @@
 //#define NO_RECURSIVE_RULES
 //#define NO_OR_RULES
 //#define NO_ALL_VAR_QUERIES
+//#define PRINT_FREE_MEM
 
 #include "HazeProlog.h"
 
@@ -17,7 +18,7 @@ Fact fact5{ 1, "fruit", false, "apple", false, "", &fact6 };
 Fact fact4{ 2, "fatherOf", false, "tom", false, "dick", &fact5 };
 Fact fact3{ 2, "motherOf", false, "dick", false, "jane", &fact4 };
 Fact fact2{ 2, "motherOf", false, "ann", false, "marry", &fact3 };
-Fact fact1{ 2, "motherOf", false, "marry", false, "judy", &fact2 };
+Fact fact1 { 2, "motherOf", false, "marry", false, "judy", &fact2 };
 
 Rule rule7{ { 2, "female-with-like-to", true, "X", true, "Y", 0 }, 2
     , { 2, "likes", true, "X", true, "Y", 0 }, true
@@ -42,7 +43,7 @@ Rule rule3{ { 2, "likes", false, "john", true, "X", 0 }, 1
 Rule rule2{ { 2, "grandMotherOf", true, "X", true, "GM", 0 }, 2
     , { 2, "fatherOf", true, "X", true, "F", 0 }, true
     , { 2, "motherOf", true, "F", true, "GM", 0 }, &rule3 };
-
+    
 Rule rule1{ { 2, "grandMotherOf", true, "X", true, "GM", 0 }, 2
     , { 2, "motherOf", true, "X", true, "F", 0 }, true
     , { 2, "motherOf", true, "F", true, "GM", 0 }, &rule2 };
@@ -56,7 +57,7 @@ void doPrologWork()
   //Fact query{ 2, "female-with-like-to", true, "Female", true, "Like", 0 };
   //Fact query{ 2, "likes", false, "john", true, "X", 0 };
   Fact query{ 2, "grandMotherOf", true, "X", true, "GM", 0 };
-  //Fact query{ 2, "motherOf", true, "X", true, "jane", 0 };
+  //Fact query{ 2, "motherOf", true, "X", false, "judy", 0 };
   //Fact query{ 1, "fruit", true, "X", false, "", 0 };
 
   //FixVariableFlags(&query); // no need to call if you are manualy set variable flags!
@@ -72,7 +73,7 @@ void doPrologWork()
   }
   else
   {
-    Serial.println("no results!");
+    Serial.println(F("no results!"));
   } 
 }
 

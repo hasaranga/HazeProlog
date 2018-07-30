@@ -10,16 +10,29 @@ Syntax limitations:
 
 Optimization notes:
 	(#) define NO_RECURSIVE_RULES if you don't have rules with their body containing their own name. 
-		it will remove "readLock" of Rule struct and allow you to define ROM-able(static const) rules!
+		it will remove "readLock" of Rule struct and allow you to define static const rules!
 	(#) define NO_ALL_VAR_QUERIES if you don't have queries with two variables.
 	(#) define NO_OR_RULES if you don't have rules with OR operator.
 */
 
-#ifndef _HAZE_PROLOG_H_
-#define _HAZE_PROLOG_H_
+#ifndef HAZE_PROLOG_H_
+#define HAZE_PROLOG_H_
 
-#include <stdio.h> // for printf
 #include <string.h> // for strcmp
+
+#ifndef Arduino_h
+#include <stdio.h> // for printf
+#endif
+
+#ifdef PRINT_FREE_MEM
+#include <MemoryFree.h> // for AVR free mem
+#endif
+
+#ifdef Arduino_h
+#define PRINT(TXT) Serial.print(TXT)
+#else
+#define PRINT(TXT) printf(TXT)
+#endif
 
 // change following two values according to your rules/facts definitions.
 // consider stack size of your system when changing these values!
@@ -30,13 +43,21 @@ Optimization notes:
 // define MONITOR_BUFFERS if you want to display buffer usages.
 // check buffer usage for each of your query. then you can set minimum values for MAX_MATCHING_FACTS and MAX_MATCHING_RULES.
 #ifdef MONITOR_BUFFERS
-#define PRINT_BUFFER_USAGE(USAGE,MAX) printf("buffer: %d / %d\n", (int)USAGE, (int)MAX); // replace this line according to your system!
+#define PRINT_BUFFER_USAGE(USAGE,MAX) PRINT("buffer: "); PRINT((int)USAGE); PRINT(" / "); PRINT((int)MAX); PRINT("\n");
 #else
 #define PRINT_BUFFER_USAGE(USAGE,MAX) 
 #endif
 
 #ifndef int8
 #define int8 char
+#endif
+
+#ifndef NO_INLINE
+#ifdef __GNUG__ // g++
+#define NO_INLINE __attribute__((noinline))
+#else
+#define NO_INLINE 
+#endif
 #endif
 
 struct Fact
@@ -215,16 +236,16 @@ public:
 
 		while (nextRule)
 		{
-			#ifndef NO_RECURSIVE_RULES
+#ifndef NO_RECURSIVE_RULES
 			if ((!nextRule->readLock)
 				&& (nextRule->head.termCount == query->termCount)
 				&& HazeProlog::StringCompare(nextRule->head.predicateName, query->predicateName)
 				&& HazeProlog::IsFactMatch(query, &nextRule->head))
-			#else  
+#else  
 			if ( (nextRule->head.termCount == query->termCount)
 				&& HazeProlog::StringCompare(nextRule->head.predicateName, query->predicateName)
 				&& HazeProlog::IsFactMatch(query, &nextRule->head))
-			#endif
+#endif
 			{
 				result[*ruleCount] = nextRule;
 				++(*ruleCount);
@@ -326,30 +347,135 @@ public:
 		}
 	}
 
-	bool SolveQuery(const Fact *query, int8 *resultCount, Fact *results)
+	NO_INLINE bool SolveFactQuery(const Fact *query, int8 *resultCount, Fact *results)
 	{
+#ifdef PRINT_FREE_MEM
+		PRINT("SolveFactQuery Free Mem: ");
+		PRINT(freeMemory());
+		PRINT("\n");
+#endif
+
+		int8 matchingFactCount;
+		const Fact *matchingFacts[MAX_MATCHING_FACTS];
+		bool hasResults = this->FindMatchingFactsFromFactList(query, &matchingFactCount, matchingFacts);
+
+		PRINT_BUFFER_USAGE(matchingFactCount, MAX_MATCHING_FACTS);
+
+		if (hasResults)
+			HazeProlog::PutResultsAccordingToQuery(query, matchingFacts, matchingFactCount, results, resultCount);
+
+		return hasResults;
+	}
+
+	NO_INLINE void OptFunc1(bool *hasResults2, Fact *queringFact, Rule *queringRule, Fact *fact1Results, int8 *resultCount, Fact *results, int8 j)
+	{
+		Fact fact2Results[MAX_MATCHING_FACTS];
+		int8 resultCountForFact2 = 0;
+
+		(*hasResults2) |= this->SolveQuery(queringFact, &resultCountForFact2, fact2Results);
+
+		PRINT_BUFFER_USAGE(resultCountForFact2, MAX_MATCHING_FACTS);
+
+		for (int8 k = 0; k < resultCountForFact2; ++k) // re-arrange results
+		{
+			if (HazeProlog::StringCompare(queringRule->head.term1Name, queringRule->fact1.term1Name)) // rule(X,Y) = fact1(X) , fact2(?,?)
+			{
+				results[(*resultCount)].term1Name = fact1Results[j].term1Name;
+
+				if (HazeProlog::StringCompare(queringRule->head.term1Name, queringRule->fact2.term1Name)) // rule(X,Y) = fact1(X) , fact2(X,Y)				
+					results[(*resultCount)].term2Name = fact2Results[k].term2Name;
+				else // rule(X,Y) = fact1(X) , fact2(Y,X)
+					results[(*resultCount)].term2Name = fact2Results[k].term1Name;
+			}
+			else // rule(Y,X) = fact1(X) , fact2(?,?)
+			{
+				results[(*resultCount)].term2Name = fact1Results[j].term1Name;
+
+				if (HazeProlog::StringCompare(queringRule->head.term1Name, queringRule->fact2.term1Name)) // rule(Y,X) = fact1(X) , fact2(X,Y)				
+					results[(*resultCount)].term1Name = fact2Results[k].term2Name;
+				else // rule(Y,X) = fact1(X) , fact2(Y,X)
+					results[(*resultCount)].term1Name = fact2Results[k].term1Name;
+			}
+			++(*resultCount);
+		}
+	}
+
+	NO_INLINE void OptFunc2(bool *hasResults2, Fact *queringFact, Rule *queringRule, Fact *fact1Results, int8 *resultCount, Fact *results, int8 j)
+	{
+		Fact fact2Results[MAX_MATCHING_FACTS];
+		int8 resultCountForFact2 = 0;
+		(*hasResults2) |= this->SolveQuery(queringFact, &resultCountForFact2, fact2Results);
+
+		PRINT_BUFFER_USAGE(resultCountForFact2, MAX_MATCHING_FACTS);
+
+		for (int8 k = 0; k < resultCountForFact2; ++k) // re-arrange results
+		{
+			if (HazeProlog::StringCompare(queringRule->head.term1Name, queringRule->fact1.term1Name)) // rule(X,Y) = fact1(X, ?) , fact2(?,?)
+			{
+				results[(*resultCount)].term1Name = fact1Results[j].term1Name;
+
+				if (HazeProlog::StringCompare(queringRule->head.term2Name, queringRule->fact2.term1Name)) // rule(X,Y) = fact1(X, ?) , fact2(Y,?)				
+					results[(*resultCount)].term2Name = fact2Results[k].term1Name;
+				else // rule(X,Y) = fact1(X, ?) , fact2(?,Y)		
+					results[(*resultCount)].term2Name = fact2Results[k].term2Name;
+			}
+			else if (HazeProlog::StringCompare(queringRule->head.term1Name, queringRule->fact1.term2Name)) // rule(X,Y) = fact1(?, X) , fact2(?,?)
+			{
+				results[(*resultCount)].term1Name = fact1Results[j].term2Name;
+
+				if (HazeProlog::StringCompare(queringRule->head.term2Name, queringRule->fact2.term1Name)) // rule(X,Y) = fact1(?, X) , fact2(Y,?)				
+					results[(*resultCount)].term2Name = fact2Results[k].term1Name;
+				else // rule(X,Y) = fact1(?, X) , fact2(?,Y)		
+					results[(*resultCount)].term2Name = fact2Results[k].term2Name;
+			}
+			else if (HazeProlog::StringCompare(queringRule->head.term1Name, queringRule->fact2.term1Name)) // rule(X,Y) = fact1(?, ?) , fact2(X,?)
+			{
+				results[(*resultCount)].term1Name = fact2Results[k].term1Name;
+
+				if (HazeProlog::StringCompare(queringRule->head.term2Name, queringRule->fact1.term1Name)) // rule(X,Y) = fact1(Y, ?) , fact2(X,?)				
+					results[(*resultCount)].term2Name = fact1Results[j].term1Name;
+				else  // rule(X,Y) = fact1(?, Y) , fact2(X,?)			
+					results[(*resultCount)].term2Name = fact1Results[j].term2Name;
+			}
+			else  // rule(X,Y) = fact1(?, ?) , fact2(?,X)
+			{
+				results[(*resultCount)].term1Name = fact2Results[k].term2Name;
+
+				if (HazeProlog::StringCompare(queringRule->head.term2Name, queringRule->fact1.term1Name)) // rule(X,Y) = fact1(Y, ?) , fact2(?,X)				
+					results[(*resultCount)].term2Name = fact1Results[j].term1Name;
+				else  // rule(X,Y) = fact1(?, Y) , fact2(?,X)			
+					results[(*resultCount)].term2Name = fact1Results[j].term2Name;
+			}
+			++(*resultCount);
+		}
+	}
+
+	NO_INLINE bool SolveRuleQuery(const Fact *query, int8 *resultCount, Fact *results)
+	{
+#ifdef PRINT_FREE_MEM
+		PRINT("SolveRuleQuery Free Mem: ");
+		PRINT(freeMemory());
+		PRINT("\n");
+#endif
+
 		int8 matchingRulesCount;
 		const Rule *matchingRules[MAX_MATCHING_RULES];
 		this->FindMatchingRulesFromRulesList(query, &matchingRulesCount, matchingRules);
 
 		PRINT_BUFFER_USAGE(matchingRulesCount, MAX_MATCHING_RULES);
 
-		if (matchingRulesCount) // do we have matching rules?
+		if (matchingRulesCount)
 		{
 			Fact fact1Results[MAX_MATCHING_FACTS];
-
-			#ifndef NO_ALL_VAR_QUERIES
-			Fact fact2Results[MAX_MATCHING_FACTS]; // we put this in here. because it was declared multiple times within different blocks and caused higher(3x) stack usage!
-			#endif
 
 			bool found = false;
 			for (int8 i = 0; i < matchingRulesCount; ++i)
 			{
 				const Rule *matchingRule = matchingRules[i];
 
-				#ifndef NO_RECURSIVE_RULES
+#ifndef NO_RECURSIVE_RULES
 				matchingRule->readLock = true; // acquire lock
-				#endif
+#endif
 
 				Rule queringRule;
 				HazeProlog::CopyRule(matchingRule, &queringRule);
@@ -380,7 +506,7 @@ public:
 						++(*resultCount);
 					}
 				}
-				#ifndef NO_OR_RULES
+#ifndef NO_OR_RULES
 				else if ((queringRule.factCountInBody == 2) && (!queringRule.op1IsAnd)) // OR with second fact
 				{
 					for (int8 j = 0; j < resultCountForFact1; ++j) // add first fact results
@@ -402,7 +528,7 @@ public:
 
 					hasResults |= hasResults2;
 				}
-				#endif
+#endif
 				else if (hasResults && (queringRule.factCountInBody == 2) && (queringRule.op1IsAnd)) // AND with second fact
 				{
 					int8 fact1VariableCount = HazeProlog::GetVariableCountOfQuery(&queringRule.fact1);
@@ -451,119 +577,48 @@ public:
 							}
 							else // output require 2 column results. So, we need to re-arrange results according to query. Ex: "query(X,Y)" and we have "rule(X,Y) = fact1(X) , fact2(X,Y)"
 							{
-								#ifndef NO_ALL_VAR_QUERIES
-
-								int8 resultCountForFact2 = 0;
-								hasResults2 |= this->SolveQuery(&queringFact, &resultCountForFact2, fact2Results);
-
-								PRINT_BUFFER_USAGE(resultCountForFact2, MAX_MATCHING_FACTS);
-
-								for (int8 k = 0; k < resultCountForFact2; ++k) // re-arrange results
-								{
-									if (HazeProlog::StringCompare(queringRule.head.term1Name, queringRule.fact1.term1Name)) // rule(X,Y) = fact1(X) , fact2(?,?)
-									{
-										results[(*resultCount)].term1Name = fact1Results[j].term1Name;
-
-										if (HazeProlog::StringCompare(queringRule.head.term1Name, queringRule.fact2.term1Name)) // rule(X,Y) = fact1(X) , fact2(X,Y)				
-											results[(*resultCount)].term2Name = fact2Results[k].term2Name;
-										else // rule(X,Y) = fact1(X) , fact2(Y,X)
-											results[(*resultCount)].term2Name = fact2Results[k].term1Name;
-									}
-									else // rule(Y,X) = fact1(X) , fact2(?,?)
-									{
-										results[(*resultCount)].term2Name = fact1Results[j].term1Name;
-
-										if (HazeProlog::StringCompare(queringRule.head.term1Name, queringRule.fact2.term1Name)) // rule(Y,X) = fact1(X) , fact2(X,Y)				
-											results[(*resultCount)].term1Name = fact2Results[k].term2Name;
-										else // rule(Y,X) = fact1(X) , fact2(Y,X)
-											results[(*resultCount)].term1Name = fact2Results[k].term1Name;
-									}
-									++(*resultCount);
-								}
-
-								#endif
+#ifndef NO_ALL_VAR_QUERIES
+								OptFunc1(&hasResults2, &queringFact, &queringRule, fact1Results, resultCount, results, j);
+#endif
 							}
 						}
 						else if (fact1VariableCount == 2) // both facts has 2 variables. Ex: "query(X,Y)" and we have "rule(X,Y) = fact1(X,Z) , fact2(Z,Y)"
 						{
-							#ifndef NO_ALL_VAR_QUERIES
-
-							int8 resultCountForFact2 = 0;
-							hasResults2 |= this->SolveQuery(&queringFact, &resultCountForFact2, fact2Results);
-
-							PRINT_BUFFER_USAGE(resultCountForFact2, MAX_MATCHING_FACTS);
-
-							for (int8 k = 0; k < resultCountForFact2; ++k) // re-arrange results
-							{
-								if (HazeProlog::StringCompare(queringRule.head.term1Name, queringRule.fact1.term1Name)) // rule(X,Y) = fact1(X, ?) , fact2(?,?)
-								{
-									results[(*resultCount)].term1Name = fact1Results[j].term1Name;
-
-									if (HazeProlog::StringCompare(queringRule.head.term2Name, queringRule.fact2.term1Name)) // rule(X,Y) = fact1(X, ?) , fact2(Y,?)				
-										results[(*resultCount)].term2Name = fact2Results[k].term1Name;
-									else // rule(X,Y) = fact1(X, ?) , fact2(?,Y)		
-										results[(*resultCount)].term2Name = fact2Results[k].term2Name;
-								}
-								else if (HazeProlog::StringCompare(queringRule.head.term1Name, queringRule.fact1.term2Name)) // rule(X,Y) = fact1(?, X) , fact2(?,?)
-								{
-									results[(*resultCount)].term1Name = fact1Results[j].term2Name;
-
-									if (HazeProlog::StringCompare(queringRule.head.term2Name, queringRule.fact2.term1Name)) // rule(X,Y) = fact1(?, X) , fact2(Y,?)				
-										results[(*resultCount)].term2Name = fact2Results[k].term1Name;
-									else // rule(X,Y) = fact1(?, X) , fact2(?,Y)		
-										results[(*resultCount)].term2Name = fact2Results[k].term2Name;
-								}
-								else if (HazeProlog::StringCompare(queringRule.head.term1Name, queringRule.fact2.term1Name)) // rule(X,Y) = fact1(?, ?) , fact2(X,?)
-								{
-									results[(*resultCount)].term1Name = fact2Results[k].term1Name;
-
-									if (HazeProlog::StringCompare(queringRule.head.term2Name, queringRule.fact1.term1Name)) // rule(X,Y) = fact1(Y, ?) , fact2(X,?)				
-										results[(*resultCount)].term2Name = fact1Results[j].term1Name;
-									else  // rule(X,Y) = fact1(?, Y) , fact2(X,?)			
-										results[(*resultCount)].term2Name = fact1Results[j].term2Name;
-								}
-								else  // rule(X,Y) = fact1(?, ?) , fact2(?,X)
-								{
-									results[(*resultCount)].term1Name = fact2Results[k].term2Name;
-
-									if (HazeProlog::StringCompare(queringRule.head.term2Name, queringRule.fact1.term1Name)) // rule(X,Y) = fact1(Y, ?) , fact2(?,X)				
-										results[(*resultCount)].term2Name = fact1Results[j].term1Name;
-									else  // rule(X,Y) = fact1(?, Y) , fact2(?,X)			
-										results[(*resultCount)].term2Name = fact1Results[j].term2Name;
-								}
-								++(*resultCount);
-							}
-
-							#endif
+#ifndef NO_ALL_VAR_QUERIES
+							OptFunc2(&hasResults2, &queringFact, &queringRule, fact1Results, resultCount, results, j);
+#endif
 						}
 					}
 
 					hasResults &= hasResults2;
 				}
 
-				#ifndef NO_RECURSIVE_RULES
+#ifndef NO_RECURSIVE_RULES
 				matchingRule->readLock = false; // release lock
-				#endif
+#endif
 
 				found |= hasResults;
 			}
 
 			return found;
 		}
-		else // search in facts list
+
+		return false;
+	}
+
+	NO_INLINE bool SolveQuery(const Fact *query, int8 *resultCount, Fact *results)
+	{
+#ifdef PRINT_FREE_MEM
+		PRINT("SolveQuery Free Mem: ");
+		PRINT(freeMemory());
+		PRINT("\n");
+#endif
+
+		if (!this->SolveRuleQuery(query, resultCount, results)) // do we have matching rules?
 		{
-			int8 matchingFactCount;
-			const Fact *matchingFacts[MAX_MATCHING_FACTS];
-			bool hasResults = this->FindMatchingFactsFromFactList(query, &matchingFactCount, matchingFacts);
-
-			PRINT_BUFFER_USAGE(matchingFactCount, MAX_MATCHING_FACTS);
-
-			if (hasResults)
-				HazeProlog::PutResultsAccordingToQuery(query, matchingFacts, matchingFactCount, results, resultCount);
-
-			return hasResults;
+			return this->SolveFactQuery(query, resultCount, results); // search in facts list if we don't have matching rules.
 		}
-
+		return true;
 	}
 
 };
@@ -571,26 +626,27 @@ public:
 // if query has one var then print first term of result
 // if query has two vars then print both terms of result
 // if query has no vars then print true
-void PrintResultAccordingToQuery(Fact *query, Fact *result) // replace printf function according to your system!
+
+void PrintResultAccordingToQuery(Fact *query, Fact *result)
 {
 	int8 varCount = HazeProlog::GetVariableCountOfQuery(query);
 
 	if (varCount == 0)
 	{
-		printf("true");
+		PRINT("true");
 	}
 	else if (varCount == 1)
 	{
-		printf(result->term1Name);
+		PRINT(result->term1Name);
 	}
 	else if (varCount == 2)
 	{
-		printf(result->term1Name);
-		printf(", ");
-		printf(result->term2Name);
+		PRINT(result->term1Name);
+		PRINT(", ");
+		PRINT(result->term2Name);
 	}
 
-	printf("\n");
+	PRINT("\n");
 }
 
 #endif
