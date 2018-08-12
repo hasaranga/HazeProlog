@@ -67,7 +67,7 @@ int main()
 	if (prolog.SolveQuery(&query, &resultCount, results))
 	{
 		for (int i = 0; i < resultCount; ++i)
-			PrintResultAccordingToQuery(&query, &results[i]);
+			HazeProlog::PrintResultAccordingToQuery(&query, &results[i]);
 	}
 	else
 	{

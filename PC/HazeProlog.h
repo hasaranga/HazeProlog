@@ -621,32 +621,108 @@ public:
 		return true;
 	}
 
+	// if query has one var then print first term of result
+	// if query has two vars then print both terms of result
+	// if query has no vars then print true
+	static void PrintResultAccordingToQuery(Fact *query, Fact *result)
+	{
+		int8 varCount = HazeProlog::GetVariableCountOfQuery(query);
+
+		if (varCount == 0)
+		{
+			PRINT("true");
+		}
+		else if (varCount == 1)
+		{
+			PRINT(result->term1Name);
+		}
+		else if (varCount == 2)
+		{
+			PRINT(result->term1Name);
+			PRINT(", ");
+			PRINT(result->term2Name);
+		}
+
+		PRINT("\n");
+	}
+
+#ifdef ENABLE_SERIAL_PARSER
+
+	static uint8_t ReadStringFromSerial(char *buffer)
+	{
+		uint8_t inIndex = 0;
+
+		while (!Serial.available()){} // wait till we receive data
+
+		while (Serial.available() > 0)
+		{
+			buffer[inIndex] = Serial.read();
+			++inIndex;
+		}
+
+		buffer[inIndex] = 0; // null termination
+		return inIndex;
+	}
+
+	// Serial Monitor Options: No line ending
+	void EvalSerialInput()
+	{
+		char inData[40];
+		uint8_t inLength = HazeProlog::ReadStringFromSerial(inData);
+
+		if (inLength > 0)
+		{
+			char* parenthesStart = strchr(inData, '(');
+			if (parenthesStart)
+			{
+				char* parenthesEnd = strchr(inData, ')');
+				if (parenthesEnd)
+				{
+					char* comma = strchr(inData, ',');
+					bool hasComma = (comma == 0) ? false : true;
+
+					Fact query;
+					query.termCount = hasComma ? 2 : 1;
+
+					query.predicateName = inData;
+					*parenthesStart = 0;
+
+					query.term1Name = parenthesStart + 1;
+					*parenthesEnd = 0;
+
+					if (hasComma) // two terms
+					{
+						*comma = 0;
+						query.term2Name = comma + 1;
+					}
+
+					query.nextFact = 0;
+
+					HazeProlog::FixVariableFlags(&query);
+
+					int8 resultCount = 0;
+					Fact results[MAX_MATCHING_FACTS];
+
+					if (this->SolveQuery(&query, &resultCount, results))
+					{
+						for (int8 i = 0; i < resultCount; ++i)
+							HazeProlog::PrintResultAccordingToQuery(&query, &results[i]);
+					}
+					else
+					{
+						Serial.println("no results!");
+					}
+
+					return;
+				}
+			}
+		}
+
+		Serial.println("Invalid query!");
+	}
+
+#endif
+
 };
-
-// if query has one var then print first term of result
-// if query has two vars then print both terms of result
-// if query has no vars then print true
-
-void PrintResultAccordingToQuery(Fact *query, Fact *result)
-{
-	int8 varCount = HazeProlog::GetVariableCountOfQuery(query);
-
-	if (varCount == 0)
-	{
-		PRINT("true");
-	}
-	else if (varCount == 1)
-	{
-		PRINT(result->term1Name);
-	}
-	else if (varCount == 2)
-	{
-		PRINT(result->term1Name);
-		PRINT(", ");
-		PRINT(result->term2Name);
-	}
-
-	PRINT("\n");
-}
 
 #endif
