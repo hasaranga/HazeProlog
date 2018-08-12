@@ -11,6 +11,7 @@ HazeProlog
 
 "Instead of giving computers imperative recipes for doing things, you can give them declarative specifications of problems and let them find the answers. As a human your skill is understanding what needs to be done; the computer’s skill is working out the best way to do it."
 
+
 *HazeProlog running on Arduino Pro Micro 16MHz:*
 
 
