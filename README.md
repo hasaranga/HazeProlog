@@ -15,7 +15,10 @@ HazeProlog
 ![pro micro](pro_micro.gif)
 
 *(HazeProlog running on Arduino Pro Micro 16MHz)*
+<<<<<<< HEAD
 
 ### Block diagram of generic system
 
 ![diagram](block_diagram.png)
+=======
+>>>>>>> 913196e432a642a3069004a229a414aad8aebeed
